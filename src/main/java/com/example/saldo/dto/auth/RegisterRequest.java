@@ -1,7 +1,8 @@
 package com.example.saldo.dto.auth;
 
-public record LoginRequest(
+public record RegisterRequest(
         String login,
+        String email,
         String password
 ) {
 }

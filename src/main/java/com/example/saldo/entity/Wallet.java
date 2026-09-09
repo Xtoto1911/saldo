@@ -42,4 +42,19 @@ public class Wallet {
     @OneToMany(mappedBy = "wallet")
     @Builder.Default
     private List<Transaction> transactions = new ArrayList<>();
+
+    @Transient
+    public BigDecimal getBalance() {
+        BigDecimal transactionsBalance = transactions.stream()
+                .map(transaction -> {
+                    if (transaction.getCategory().getType() == CategoryType.INCOME) {
+                        return transaction.getAmount();
+                    }
+
+                    return transaction.getAmount().negate();
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return initialBalance.add(transactionsBalance);
+    }
 }

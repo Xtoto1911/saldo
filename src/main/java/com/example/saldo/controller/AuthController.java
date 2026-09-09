@@ -2,8 +2,8 @@ package com.example.saldo.controller;
 
 import com.example.saldo.dto.auth.AccessTokenResponse;
 import com.example.saldo.dto.auth.LoginRequest;
-import com.example.saldo.dto.auth.LoginResponse;
 import com.example.saldo.dto.auth.LoginResult;
+import com.example.saldo.dto.auth.RegisterRequest;
 import com.example.saldo.entity.User;
 import com.example.saldo.repository.UserRepository;
 import com.example.saldo.service.AuthService;
@@ -37,7 +37,7 @@ public class AuthController {
     ) {
         LoginResult result =
                 authService.login(
-                        request.email(),
+                        request.login(),
                         request.password()
                 );
 
@@ -65,7 +65,7 @@ public class AuthController {
             String refreshToken
     ) {
 
-        if(refreshToken == null) {
+        if (refreshToken == null) {
             return ResponseEntity
                     .status(HttpStatus.UNAUTHORIZED)
                     .build();
@@ -92,17 +92,26 @@ public class AuthController {
 
     @PostMapping("/register")
     public ResponseEntity<User> registerUser(
-            @RequestParam("login") String login,
-            @RequestParam("email") String email,
-            @RequestParam("password") String password) {
+            @RequestBody RegisterRequest registerRequest
+    ) {
 
-        if(userRepository.existsByEmail(email)) {
+        if (userRepository.existsByEmail(registerRequest.email())) {
             return ResponseEntity.
                     status(HttpStatus.CONFLICT)
                     .build();
         }
 
-        Optional<User> user = registrationService.registration(login, email, password);
+        if (userRepository.existsByLogin(registerRequest.login())) {
+            return ResponseEntity.
+                    status(HttpStatus.CONFLICT)
+                    .build();
+        }
+
+        Optional<User> user = registrationService.registration(
+                registerRequest.login(),
+                registerRequest.email(),
+                registerRequest.password()
+        );
 
         return user.map(value -> ResponseEntity
                 .status(HttpStatus.CREATED)

@@ -1,6 +1,5 @@
 package com.example.saldo.service;
 
-import com.example.saldo.dto.auth.LoginResponse;
 import com.example.saldo.dto.auth.LoginResult;
 import com.example.saldo.entity.RefreshSession;
 import com.example.saldo.entity.User;
@@ -8,7 +7,6 @@ import com.example.saldo.repository.RefreshSessionRepository;
 import com.example.saldo.repository.UserRepository;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
-import org.hibernate.validator.cfg.defs.UUIDDef;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -30,11 +28,61 @@ public class AuthService {
 
     private final RefreshSessionRepository refreshSessionRepository;
 
+    @Transactional
     public LoginResult login(
-            String email,
+            String login,
             String password
     ) {
-        return null;
+        User user = userRepository
+                .findByLogin(login)
+                .orElseThrow(() ->
+                        new BadCredentialsException(
+                                "Invalid login or password"
+                        )
+                );
+
+        boolean passwordValid = passwordEncoder.matches(
+                password,
+                user.getPasswordHash()
+        );
+
+        if (!passwordValid) {
+            throw new BadCredentialsException(
+                    "Invalid login or password"
+            );
+        }
+
+        String accessToken =
+                jwtService.createAccessToken(user);
+
+        UUID sessionId = UUID.randomUUID();
+        UUID familyId = UUID.randomUUID();
+
+        Instant expiresAt =
+                Instant.now()
+                        .plus(Duration.ofDays(30));
+
+        RefreshSession refreshSession =
+                RefreshSession.builder()
+                        .id(sessionId)
+                        .user(user)
+                        .familyId(familyId)
+                        .expiresAt(expiresAt)
+                        .build();
+
+        refreshSessionRepository.save(refreshSession);
+
+        String refreshToken =
+                jwtService.createRefreshToken(
+                        user,
+                        sessionId,
+                        expiresAt
+                );
+
+        return new LoginResult(
+                accessToken,
+                refreshToken
+        );
     }
 
     @Transactional

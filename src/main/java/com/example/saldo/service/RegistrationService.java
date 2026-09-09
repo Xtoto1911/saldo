@@ -4,6 +4,7 @@ import com.example.saldo.entity.*;
 import com.example.saldo.repository.*;
 import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -23,13 +24,15 @@ public class RegistrationService {
 
     private final WorkspaceWalletRepository workspaceWalletRepository;
 
+    private final PasswordEncoder passwordEncoder;
+
     @Transactional
     public Optional<User> registration(String login, String email, String password) {
 
         User user = User.builder()
                 .login(login)
                 .email(email)
-                .passwordHash(password)
+                .passwordHash(passwordEncoder.encode(password))
                 .build();
 
         userRepository.save(user);

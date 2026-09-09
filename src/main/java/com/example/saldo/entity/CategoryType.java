@@ -1,6 +1,6 @@
 package com.example.saldo.entity;
 
-enum CategoryType {
+public enum CategoryType {
     INCOME,
     EXPENSE
 }
