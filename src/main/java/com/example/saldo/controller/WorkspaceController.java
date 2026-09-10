@@ -2,6 +2,7 @@ package com.example.saldo.controller;
 
 import com.example.saldo.dto.workspace.*;
 import com.example.saldo.service.WorkspaceService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -42,22 +43,70 @@ public class WorkspaceController {
     public ResponseEntity<WalletResponse> createWalletForWorkspace(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("workspaceId") UUID workspaceId,
-            @RequestBody WalletRequest walletRequest) {
-        try {
-            UUID userId = UUID.fromString(jwt.getSubject());
-            WalletResponse wallet = workspaceService.createWallet(userId, workspaceId, walletRequest);
-            return ResponseEntity.status(HttpStatus.CREATED).body(wallet);
-        } catch (AccessDeniedException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
+            @RequestBody WalletRequest walletRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+        WalletResponse wallet = workspaceService.createWallet(userId, workspaceId, walletRequest);
+        return ResponseEntity.status(HttpStatus.CREATED).body(wallet);
     }
 
     @GetMapping("/{workspaceId}/categories")
     public ResponseEntity<List<CategoryResponse>> getCategoriesForWorkspace(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("workspaceId") UUID workspaceId
-    ){
+    ) {
         return ResponseEntity.ok(workspaceService.getAllCategories(workspaceId));
+    }
+
+    @PostMapping("/{workspaceId}/categories")
+    public ResponseEntity<CategoryResponse> createCategory(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @Valid @RequestBody CategoryRequest categoryRequest) throws AccessDeniedException {
+
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(workspaceService
+                        .createCategory(
+                                userId,
+                                workspaceId,
+                                categoryRequest
+                        ));
+
+    }
+
+    @PutMapping("/{workspaceId}/categories/{categoryId}")
+    public ResponseEntity<CategoryResponse> updateCategory(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @PathVariable("categoryId") UUID categoryId,
+            @Valid @RequestBody UpdateCategoryRequest categoryRequest) throws AccessDeniedException {
+
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.ok(
+                workspaceService.updateCategory(
+                        userId,
+                        workspaceId,
+                        categoryId,
+                        categoryRequest
+                )
+        );
+
+    }
+
+    @DeleteMapping("/{workspaceId}/categories/{categoryId}")
+    public ResponseEntity<Void> deleteCategory(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @PathVariable("categoryId") UUID categoryId) throws AccessDeniedException {
+
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        workspaceService.deleteCategory(userId, workspaceId, categoryId);
+
+        return ResponseEntity.noContent().build();
+
     }
 
     @GetMapping("/{workspaceId}/transactions")
@@ -67,24 +116,18 @@ public class WorkspaceController {
             @PathVariable UUID workspaceId,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "5") int size
-    ) {
-        try {
+    ) throws AccessDeniedException {
+        UUID userId =
+                UUID.fromString(jwt.getSubject());
 
+        PageResponse<TransactionResponse> response =
+                workspaceService.getTransactions(
+                        userId,
+                        workspaceId,
+                        page,
+                        size
+                );
 
-            UUID userId =
-                    UUID.fromString(jwt.getSubject());
-
-            PageResponse<TransactionResponse> response =
-                    workspaceService.getTransactions(
-                            userId,
-                            workspaceId,
-                            page,
-                            size
-                    );
-
-            return ResponseEntity.ok(response);
-        }catch (AccessDeniedException e) {
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        }
+        return ResponseEntity.ok(response);
     }
 }

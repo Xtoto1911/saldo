@@ -18,4 +18,6 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             UUID workspaceId,
             Pageable pageable
     );
+
+    boolean existsByCategoryId(UUID categoryId);
 }
