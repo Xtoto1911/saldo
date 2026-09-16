@@ -6,6 +6,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public interface TransactionRepository extends JpaRepository<Transaction, UUID> {
@@ -19,5 +20,8 @@ public interface TransactionRepository extends JpaRepository<Transaction, UUID> 
             Pageable pageable
     );
 
+    Optional<Transaction> findByIdAndWorkspace_Id(UUID id, UUID workspaceId);
+
     boolean existsByCategoryId(UUID categoryId);
+
 }

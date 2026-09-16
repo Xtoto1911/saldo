@@ -30,6 +30,36 @@ public class WorkspaceController {
         return ResponseEntity.ok(workspaceService.getAllWorkspaces(userId));
     }
 
+    @PostMapping
+    public ResponseEntity<WorkspaceResponse> createWorkspace(
+            @AuthenticationPrincipal Jwt jwt,
+            @Valid @RequestBody WorkspaceRequest workspaceRequest
+    ) {
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(workspaceService.createWorkspace(userId, workspaceRequest));
+    }
+
+    @GetMapping("/{workspaceId}/members")
+    public ResponseEntity<List<MemberResponse>> getMembers(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId
+    ) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.ok(workspaceService.getMembers(userId, workspaceId));
+    }
+
+    @PostMapping("/{workspaceId}/members")
+    public ResponseEntity<MemberResponse> inviteMember(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @Valid @RequestBody InviteRequest inviteRequest
+    ) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(workspaceService.inviteMember(userId, workspaceId, inviteRequest));
+    }
+
     @GetMapping("/{workspaceId}/wallets")
     public ResponseEntity<List<WalletResponse>> getWorkspaceWallet(
             @AuthenticationPrincipal Jwt jwt,
@@ -43,10 +73,35 @@ public class WorkspaceController {
     public ResponseEntity<WalletResponse> createWalletForWorkspace(
             @AuthenticationPrincipal Jwt jwt,
             @PathVariable("workspaceId") UUID workspaceId,
-            @RequestBody WalletRequest walletRequest) throws AccessDeniedException {
+            @Valid @RequestBody WalletRequest walletRequest) throws AccessDeniedException {
         UUID userId = UUID.fromString(jwt.getSubject());
         WalletResponse wallet = workspaceService.createWallet(userId, workspaceId, walletRequest);
         return ResponseEntity.status(HttpStatus.CREATED).body(wallet);
+    }
+
+    @PutMapping("/{workspaceId}/wallets/{walletId}")
+    public ResponseEntity<WalletResponse> updateWallet(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @PathVariable("walletId") UUID walletId,
+            @Valid @RequestBody UpdateWalletRequest walletRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.ok(
+                workspaceService.updateWallet(userId, workspaceId, walletId, walletRequest)
+        );
+    }
+
+    @PostMapping("/{workspaceId}/wallets/attach")
+    public ResponseEntity<WalletResponse> attachWallet(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @Valid @RequestBody AttachWalletRequest attachRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                workspaceService.attachWallet(userId, workspaceId, attachRequest)
+        );
     }
 
     @GetMapping("/{workspaceId}/categories")
@@ -129,5 +184,51 @@ public class WorkspaceController {
                 );
 
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{workspaceId}/transactions")
+    public ResponseEntity<TransactionResponse> createTransaction(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @Valid @RequestBody TransactionRequest transactionRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                workspaceService.createTransaction(
+                        userId,
+                        workspaceId,
+                        transactionRequest
+                )
+        );
+    }
+
+    @PutMapping("/{workspaceId}/transactions/{transactionId}")
+    public ResponseEntity<TransactionResponse> updateTransaction(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @PathVariable("transactionId") UUID transactionId,
+            @Valid @RequestBody UpdateTransactionRequest transactionRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.ok(
+                workspaceService.updateTransaction(
+                        userId,
+                        workspaceId,
+                        transactionId,
+                        transactionRequest
+                )
+        );
+    }
+
+    @DeleteMapping("/{workspaceId}/transactions/{transactionId}")
+    public ResponseEntity<Void> deleteTransaction(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @PathVariable("transactionId") UUID transactionId) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        workspaceService.deleteTransaction(userId, workspaceId, transactionId);
+
+        return ResponseEntity.noContent().build();
     }
 }

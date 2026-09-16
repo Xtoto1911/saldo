@@ -10,6 +10,7 @@ public record TransactionResponse(
         UUID id,
         UUID walletId,
         String walletName,
+        UUID categoryId,
         String categoryName,
         CategoryType categoryType,
         BigDecimal amount,

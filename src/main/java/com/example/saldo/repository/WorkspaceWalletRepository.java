@@ -6,4 +6,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.UUID;
 
 public interface WorkspaceWalletRepository extends JpaRepository<WorkspaceWallet, UUID> {
+
+    boolean existsByWorkspace_IdAndWallet_Id(UUID ws, UUID wallet);
 }

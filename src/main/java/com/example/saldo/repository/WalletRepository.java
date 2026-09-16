@@ -11,6 +11,8 @@ import java.util.UUID;
 
 public interface WalletRepository extends JpaRepository<Wallet, UUID> {
 
+    List<Wallet> findAllByOwnerId(UUID ownerId);
+
     @Query(value = """
         SELECT
             w.id AS id,

@@ -7,11 +7,13 @@ import com.example.saldo.exception.NotFoundException;
 import com.example.saldo.repository.*;
 import jakarta.persistence.EntityNotFoundException;
 import jakarta.transaction.Transactional;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.AccessDeniedException;
@@ -43,6 +45,87 @@ public class WorkspaceService {
                         workspace.getName()
                 ))
                 .toList();
+    }
+
+    @Transactional
+    public WorkspaceResponse createWorkspace(UUID userId, WorkspaceRequest workspaceRequest) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new EntityNotFoundException("User not found")
+                );
+
+        Workspace workspace = Workspace.builder()
+                .name(workspaceRequest.name().trim())
+                .build();
+        Workspace saved = workspaceRepository.save(workspace);
+
+        workspaceMemberRepository.save(WorkspaceMember.builder()
+                .workspace(saved)
+                .user(user)
+                .role(Role.OWNER)
+                .build());
+
+        return new WorkspaceResponse(saved.getId(), saved.getName());
+    }
+
+    public List<MemberResponse> getMembers(UUID userId, UUID workspaceId) throws AccessDeniedException {
+        requireMember(userId, workspaceId);
+
+        return workspaceMemberRepository.findAllByWorkspaceId(workspaceId).stream()
+                .map(member -> new MemberResponse(
+                        member.getUser().getId(),
+                        member.getUser().getLogin(),
+                        member.getUser().getEmail(),
+                        member.getRole()
+                ))
+                .toList();
+    }
+
+    @Transactional
+    public MemberResponse inviteMember(
+            UUID userId,
+            UUID workspaceId,
+            InviteRequest inviteRequest
+    ) throws AccessDeniedException {
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        requireMember(userId, workspaceId);
+
+        String email = inviteRequest.email().trim().toLowerCase();
+        User invited = userRepository.findByEmail(email)
+                .orElseThrow(() ->
+                        new NotFoundException("Пользователь с таким email не зарегистрирован")
+                );
+
+        if (workspaceMemberRepository.existsByWorkspaceIdAndUserId(workspaceId, invited.getId())) {
+            throw new ConflictException("Пользователь уже состоит в этом пространстве");
+        }
+
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Workspace не найден")
+                );
+
+        WorkspaceMember saved = workspaceMemberRepository.save(WorkspaceMember.builder()
+                .workspace(workspace)
+                .user(invited)
+                .role(Role.MEMBER)
+                .build());
+
+        return new MemberResponse(
+                invited.getId(),
+                invited.getLogin(),
+                invited.getEmail(),
+                saved.getRole()
+        );
+    }
+
+    private void requireMember(UUID userId, UUID workspaceId) throws AccessDeniedException {
+        if (!workspaceMemberRepository.existsByWorkspaceIdAndUserId(workspaceId, userId)) {
+            throw new AccessDeniedException("Нет прав на данный workspace");
+        }
     }
 
     public List<WalletResponse> getWorkspaceWallets(UUID workspaceId) {
@@ -86,10 +169,10 @@ public class WorkspaceService {
         }
 
         Wallet wallet = Wallet.builder()
-                .name(walletRequest.name())
+                .name(walletRequest.name().trim())
                 .owner(user)
                 .initialBalance(walletRequest.initialBalance())
-                .currency("RUB")
+                .currency(walletRequest.currency().trim().toUpperCase())
                 .build();
 
         Wallet createdWallet = walletRepository.save(wallet);
@@ -108,6 +191,108 @@ public class WorkspaceService {
                 createdWallet.getCurrency(),
                 createdWallet.getInitialBalance()
         );
+    }
+
+    @Transactional
+    public WalletResponse updateWallet(
+            UUID userId,
+            UUID workspaceId,
+            UUID walletId,
+            UpdateWalletRequest walletRequest
+    ) throws AccessDeniedException {
+        if (walletRequest.name() == null && walletRequest.initialBalance() == null) {
+            throw new IllegalArgumentException("Нужно передать name или initialBalance");
+        }
+
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        if (!workspaceMemberRepository.existsByWorkspaceIdAndUserId(workspaceId, userId)) {
+            throw new AccessDeniedException("Нет прав на данный workspace");
+        }
+
+        if (!workspaceWalletRepository.existsByWorkspace_IdAndWallet_Id(workspaceId, walletId)) {
+            throw new NotFoundException("Кошелёк не найден в этом workspace");
+        }
+
+        Wallet wallet = walletRepository.findById(walletId)
+                .orElseThrow(() ->
+                        new NotFoundException("Кошелёк не найден в этом workspace")
+                );
+
+        if (walletRequest.name() != null) {
+            String name = walletRequest.name().trim();
+            if (name.isBlank()) {
+                throw new IllegalArgumentException("Название кошелька не может быть пустым");
+            }
+            wallet.setName(name);
+        }
+        if (walletRequest.initialBalance() != null) {
+            wallet.setInitialBalance(walletRequest.initialBalance());
+        }
+
+        Wallet saved = walletRepository.save(wallet);
+
+        return walletWithBalance(workspaceId, saved);
+    }
+
+    private WalletResponse walletWithBalance(UUID workspaceId, Wallet wallet) {
+        WalletBalanceProjection balance = walletRepository
+                .findWalletsWithBalanceByWorkspaceId(workspaceId).stream()
+                .filter(w -> w.getId().equals(wallet.getId()))
+                .findFirst()
+                .orElseThrow(() ->
+                        new NotFoundException("Кошелёк не найден в этом workspace")
+                );
+
+        return new WalletResponse(
+                wallet.getId(),
+                wallet.getName(),
+                wallet.getCurrency(),
+                balance.getBalance()
+        );
+    }
+
+    public List<OwnedWalletResponse> getMyWallets(UUID userId) {
+        return walletRepository.findAllByOwnerId(userId).stream()
+                .map(wallet -> new OwnedWalletResponse(
+                        wallet.getId(),
+                        wallet.getName(),
+                        wallet.getCurrency()
+                ))
+                .toList();
+    }
+
+    @Transactional
+    public WalletResponse attachWallet(
+            UUID userId,
+            UUID workspaceId,
+            AttachWalletRequest attachRequest
+    ) throws AccessDeniedException {
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Workspace не найден")
+                );
+
+        requireMember(userId, workspaceId);
+
+        Wallet wallet = walletRepository.findById(attachRequest.walletId())
+                .filter(w -> w.getOwner().getId().equals(userId))
+                .orElseThrow(() ->
+                        new NotFoundException("Кошелёк не найден")
+                );
+
+        if (workspaceWalletRepository.existsByWorkspace_IdAndWallet_Id(workspaceId, wallet.getId())) {
+            throw new ConflictException("Кошелёк уже подключён к этому пространству");
+        }
+
+        workspaceWalletRepository.save(WorkspaceWallet.builder()
+                .workspace(workspace)
+                .wallet(wallet)
+                .build());
+
+        return walletWithBalance(workspaceId, wallet);
     }
 
     public List<CategoryResponse> getAllCategories(UUID workspaceId) {
@@ -190,6 +375,7 @@ public class WorkspaceService {
                                 transaction.getId(),
                                 transaction.getWallet().getId(),
                                 transaction.getWallet().getName(),
+                                transaction.getCategory().getId(),
                                 transaction.getCategory().getName(),
                                 transaction.getCategory().getType(),
                                 transaction.getAmount(),
@@ -292,5 +478,159 @@ public class WorkspaceService {
         }
 
         categoryRepository.delete(category);
+    }
+
+    public TransactionResponse createTransaction(
+            UUID userId,
+            UUID workspaceId,
+            TransactionRequest transactionRequest) throws AccessDeniedException {
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Workspace не найден")
+                );
+
+        if (!workspaceMemberRepository.existsByWorkspaceIdAndUserId(workspaceId, userId)) {
+            throw new AccessDeniedException("Нет прав на данный workspace");
+        }
+
+        if (!workspaceWalletRepository.existsByWorkspace_IdAndWallet_Id(
+                workspaceId, transactionRequest.walletId())) {
+            throw new NotFoundException("Кошелёк не найден в этом workspace");
+        }
+        Wallet wallet = walletRepository.findById(transactionRequest.walletId())
+                .orElseThrow(() ->
+                        new NotFoundException("Кошелёк не найден в этом workspace")
+                );
+
+        Category category = categoryRepository
+                .findByIdAndWorkspaceId(transactionRequest.categoryId(), workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Категория не найдена в этом workspace")
+                );
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new EntityNotFoundException("User not found")
+                );
+
+        Transaction transaction = Transaction.builder()
+                .workspace(workspace)
+                .wallet(wallet)
+                .category(category)
+                .createdBy(user)
+                .amount(transactionRequest.amount())
+                .occurredAt(transactionRequest.occurredAt())
+                .comment(transactionRequest.comment())
+                .build();
+
+        Transaction saved = transactionRepository.save(transaction);
+
+        return new TransactionResponse(
+                saved.getId(),
+                wallet.getId(),
+                wallet.getName(),
+                category.getId(),
+                category.getName(),
+                category.getType(),
+                saved.getAmount(),
+                saved.getOccurredAt(),
+                saved.getComment()
+        );
+    }
+
+    @Transactional
+    public TransactionResponse updateTransaction(
+            UUID userId,
+            UUID workspaceId,
+            UUID transactionId,
+            UpdateTransactionRequest transactionRequest
+    ) throws AccessDeniedException {
+        if (transactionRequest.walletId() == null
+                && transactionRequest.categoryId() == null
+                && transactionRequest.amount() == null
+                && transactionRequest.occurredAt() == null
+                && transactionRequest.comment() == null) {
+            throw new IllegalArgumentException("Нужно передать хотя бы одно поле");
+        }
+
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        if (!workspaceMemberRepository.existsByWorkspaceIdAndUserId(workspaceId, userId)) {
+            throw new AccessDeniedException("Нет прав на данный workspace");
+        }
+
+        Transaction transaction = transactionRepository
+                .findByIdAndWorkspace_Id(transactionId, workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Транзакция не найдена")
+                );
+
+        if (transactionRequest.walletId() != null) {
+            if (!workspaceWalletRepository.existsByWorkspace_IdAndWallet_Id(
+                    workspaceId, transactionRequest.walletId())) {
+                throw new NotFoundException("Кошелёк не найден в этом workspace");
+            }
+            Wallet wallet = walletRepository.findById(transactionRequest.walletId())
+                    .orElseThrow(() ->
+                            new NotFoundException("Кошелёк не найден в этом workspace")
+                    );
+            transaction.setWallet(wallet);
+        }
+
+        if (transactionRequest.categoryId() != null) {
+            Category category = categoryRepository
+                    .findByIdAndWorkspaceId(transactionRequest.categoryId(), workspaceId)
+                    .orElseThrow(() ->
+                            new NotFoundException("Категория не найдена в этом workspace")
+                    );
+            transaction.setCategory(category);
+        }
+
+        if (transactionRequest.amount() != null) {
+            transaction.setAmount(transactionRequest.amount());
+        }
+        if (transactionRequest.occurredAt() != null) {
+            transaction.setOccurredAt(transactionRequest.occurredAt());
+        }
+        if (transactionRequest.comment() != null) {
+            transaction.setComment(transactionRequest.comment());
+        }
+
+        return new TransactionResponse(
+                transaction.getId(),
+                transaction.getWallet().getId(),
+                transaction.getWallet().getName(),
+                transaction.getCategory().getId(),
+                transaction.getCategory().getName(),
+                transaction.getCategory().getType(),
+                transaction.getAmount(),
+                transaction.getOccurredAt(),
+                transaction.getComment()
+        );
+    }
+
+    @Transactional
+    public void deleteTransaction(
+            UUID userId,
+            UUID workspaceId,
+            UUID transactionId
+    ) throws AccessDeniedException {
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        if (!workspaceMemberRepository.existsByWorkspaceIdAndUserId(workspaceId, userId)) {
+            throw new AccessDeniedException("Нет прав на данный workspace");
+        }
+
+        Transaction transaction = transactionRepository
+                .findByIdAndWorkspace_Id(transactionId, workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Транзакция не найдена")
+                );
+
+        transactionRepository.delete(transaction);
     }
 }
