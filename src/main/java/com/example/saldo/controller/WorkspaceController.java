@@ -231,4 +231,80 @@ public class WorkspaceController {
 
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/{workspaceId}/transfers")
+    public ResponseEntity<TransferResponse> createTransfer(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @Valid @RequestBody TransferRequest transferRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                workspaceService.createTransfer(userId, workspaceId, transferRequest)
+        );
+    }
+
+    @GetMapping("/{workspaceId}/transfers")
+    public ResponseEntity<PageResponse<TransferResponse>> getTransfers(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable UUID workspaceId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "5") int size
+    ) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.ok(
+                workspaceService.getTransfers(userId, workspaceId, page, size)
+        );
+    }
+
+    @PostMapping("/{workspaceId}/budgets")
+    public ResponseEntity<BudgetItemResponse> createBudget(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @Valid @RequestBody BudgetRequest budgetRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                workspaceService.createBudget(userId, workspaceId, budgetRequest)
+        );
+    }
+
+    @GetMapping("/{workspaceId}/budgets")
+    public ResponseEntity<BudgetOverviewResponse> getBudgets(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @RequestParam(required = false) String period
+    ) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.ok(
+                workspaceService.getBudgetOverview(userId, workspaceId, period)
+        );
+    }
+
+    @PutMapping("/{workspaceId}/budgets/{budgetId}")
+    public ResponseEntity<BudgetItemResponse> updateBudget(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @PathVariable("budgetId") UUID budgetId,
+            @Valid @RequestBody UpdateBudgetRequest budgetRequest) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        return ResponseEntity.ok(
+                workspaceService.updateBudget(userId, workspaceId, budgetId, budgetRequest)
+        );
+    }
+
+    @DeleteMapping("/{workspaceId}/budgets/{budgetId}")
+    public ResponseEntity<Void> deleteBudget(
+            @AuthenticationPrincipal Jwt jwt,
+            @PathVariable("workspaceId") UUID workspaceId,
+            @PathVariable("budgetId") UUID budgetId) throws AccessDeniedException {
+        UUID userId = UUID.fromString(jwt.getSubject());
+
+        workspaceService.deleteBudget(userId, workspaceId, budgetId);
+
+        return ResponseEntity.noContent().build();
+    }
 }

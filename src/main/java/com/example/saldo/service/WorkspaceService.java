@@ -17,7 +17,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.AccessDeniedException;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
+import java.time.format.DateTimeParseException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Service
@@ -37,6 +43,10 @@ public class WorkspaceService {
     private final CategoryRepository categoryRepository;
 
     private final TransactionRepository transactionRepository;
+
+    private final TransferRepository transferRepository;
+
+    private final BudgetRepository budgetRepository;
 
     public List<WorkspaceResponse> getAllWorkspaces(UUID userId) {
         return workspaceRepository.findAllByUserId(userId).stream()
@@ -632,5 +642,263 @@ public class WorkspaceService {
                 );
 
         transactionRepository.delete(transaction);
+    }
+
+    @Transactional
+    public TransferResponse createTransfer(
+            UUID userId,
+            UUID workspaceId,
+            TransferRequest transferRequest
+    ) throws AccessDeniedException {
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Workspace не найден")
+                );
+
+        requireMember(userId, workspaceId);
+
+        if (transferRequest.fromWalletId().equals(transferRequest.toWalletId())) {
+            throw new IllegalArgumentException("Кошельки источника и назначения должны различаться");
+        }
+
+        Wallet fromWallet = linkedWallet(workspaceId, transferRequest.fromWalletId());
+        Wallet toWallet = linkedWallet(workspaceId, transferRequest.toWalletId());
+
+        if (!fromWallet.getCurrency().equals(toWallet.getCurrency())) {
+            throw new IllegalArgumentException("Переводы между разными валютами пока не поддерживаются");
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() ->
+                        new EntityNotFoundException("User not found")
+                );
+
+        Transfer transfer = Transfer.builder()
+                .workspace(workspace)
+                .fromWallet(fromWallet)
+                .toWallet(toWallet)
+                .createdBy(user)
+                .amount(transferRequest.amount())
+                .occurredAt(transferRequest.occurredAt())
+                .comment(transferRequest.comment())
+                .build();
+
+        Transfer saved = transferRepository.save(transfer);
+
+        return new TransferResponse(
+                saved.getId(),
+                fromWallet.getId(),
+                fromWallet.getName(),
+                toWallet.getId(),
+                toWallet.getName(),
+                saved.getAmount(),
+                saved.getOccurredAt(),
+                saved.getComment()
+        );
+    }
+
+    public PageResponse<TransferResponse> getTransfers(
+            UUID userId,
+            UUID workspaceId,
+            int page,
+            int size
+    ) throws AccessDeniedException {
+        requireMember(userId, workspaceId);
+
+        Pageable pageable = PageRequest.of(
+                page,
+                size,
+                Sort.by(Sort.Direction.DESC, "occurredAt")
+        );
+
+        Page<Transfer> transfers = transferRepository.findAllByWorkspace_Id(workspaceId, pageable);
+
+        Page<TransferResponse> response = transfers.map(transfer ->
+                new TransferResponse(
+                        transfer.getId(),
+                        transfer.getFromWallet().getId(),
+                        transfer.getFromWallet().getName(),
+                        transfer.getToWallet().getId(),
+                        transfer.getToWallet().getName(),
+                        transfer.getAmount(),
+                        transfer.getOccurredAt(),
+                        transfer.getComment()
+                )
+        );
+
+        return new PageResponse<>(
+                response.getContent(),
+                response.getTotalElements(),
+                response.getTotalPages(),
+                response.getNumber()
+        );
+    }
+
+    private Wallet linkedWallet(UUID workspaceId, UUID walletId) {
+        if (!workspaceWalletRepository.existsByWorkspace_IdAndWallet_Id(workspaceId, walletId)) {
+            throw new NotFoundException("Кошелёк не найден в этом workspace");
+        }
+        return walletRepository.findById(walletId)
+                .orElseThrow(() ->
+                        new NotFoundException("Кошелёк не найден в этом workspace")
+                );
+    }
+
+    @Transactional
+    public BudgetItemResponse createBudget(
+            UUID userId,
+            UUID workspaceId,
+            BudgetRequest budgetRequest
+    ) throws AccessDeniedException {
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        requireMember(userId, workspaceId);
+
+        Category category = categoryRepository
+                .findByIdAndWorkspaceId(budgetRequest.categoryId(), workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Категория не найдена в этом workspace")
+                );
+
+        YearMonth period = parsePeriod(budgetRequest.period());
+
+        if (budgetRepository.existsByWorkspaceIdAndCategoryIdAndPeriod(
+                workspaceId, category.getId(), period)) {
+            throw new ConflictException("Бюджет на эту категорию и месяц уже существует");
+        }
+
+        Workspace workspace = workspaceRepository.findById(workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Workspace не найден")
+                );
+
+        Budget saved = budgetRepository.save(Budget.builder()
+                .workspace(workspace)
+                .category(category)
+                .period(period)
+                .amount(budgetRequest.amount())
+                .build());
+
+        return new BudgetItemResponse(
+                saved.getId(),
+                category.getId(),
+                category.getName(),
+                saved.getAmount(),
+                factForCategory(workspaceId, period, category.getId())
+        );
+    }
+
+    @Transactional
+    public BudgetItemResponse updateBudget(
+            UUID userId,
+            UUID workspaceId,
+            UUID budgetId,
+            UpdateBudgetRequest budgetRequest
+    ) throws AccessDeniedException {
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        requireMember(userId, workspaceId);
+
+        Budget budget = budgetRepository
+                .findByIdAndWorkspaceId(budgetId, workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Бюджет не найден")
+                );
+
+        budget.setAmount(budgetRequest.amount());
+
+        return new BudgetItemResponse(
+                budget.getId(),
+                budget.getCategory().getId(),
+                budget.getCategory().getName(),
+                budget.getAmount(),
+                factForCategory(workspaceId, budget.getPeriod(), budget.getCategory().getId())
+        );
+    }
+
+    @Transactional
+    public void deleteBudget(
+            UUID userId,
+            UUID workspaceId,
+            UUID budgetId
+    ) throws AccessDeniedException {
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        requireMember(userId, workspaceId);
+
+        Budget budget = budgetRepository
+                .findByIdAndWorkspaceId(budgetId, workspaceId)
+                .orElseThrow(() ->
+                        new NotFoundException("Бюджет не найден")
+                );
+
+        budgetRepository.delete(budget);
+    }
+
+    public BudgetOverviewResponse getBudgetOverview(
+            UUID userId,
+            UUID workspaceId,
+            String periodParam
+    ) throws AccessDeniedException {
+        if (!workspaceRepository.existsById(workspaceId)) {
+            throw new NotFoundException("Workspace не найден");
+        }
+
+        requireMember(userId, workspaceId);
+
+        YearMonth period = periodParam != null ? parsePeriod(periodParam) : YearMonth.now();
+
+        Map<UUID, BigDecimal> facts = new HashMap<>();
+        for (CategorySpending spending : transactionRepository.sumExpensesByCategory(
+                workspaceId,
+                period.atDay(1).atStartOfDay(),
+                period.plusMonths(1).atDay(1).atStartOfDay())) {
+            facts.put(spending.getCategoryId(), spending.getTotal());
+        }
+
+        List<BudgetItemResponse> items = budgetRepository
+                .findAllByWorkspaceIdAndPeriod(workspaceId, period).stream()
+                .map(budget -> new BudgetItemResponse(
+                        budget.getId(),
+                        budget.getCategory().getId(),
+                        budget.getCategory().getName(),
+                        budget.getAmount(),
+                        facts.getOrDefault(budget.getCategory().getId(), BigDecimal.ZERO)
+                ))
+                .toList();
+
+        BigDecimal totalPlanned = items.stream()
+                .map(BudgetItemResponse::planned)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalFact = items.stream()
+                .map(BudgetItemResponse::fact)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return new BudgetOverviewResponse(period.toString(), items, totalPlanned, totalFact);
+    }
+
+    private BigDecimal factForCategory(UUID workspaceId, YearMonth period, UUID categoryId) {
+        return transactionRepository.sumExpensesByCategory(
+                        workspaceId,
+                        period.atDay(1).atStartOfDay(),
+                        period.plusMonths(1).atDay(1).atStartOfDay()).stream()
+                .filter(s -> s.getCategoryId().equals(categoryId))
+                .map(CategorySpending::getTotal)
+                .findFirst()
+                .orElse(BigDecimal.ZERO);
+    }
+
+    private YearMonth parsePeriod(String period) {
+        try {
+            return YearMonth.parse(period);
+        } catch (DateTimeParseException e) {
+            throw new IllegalArgumentException("Период — в формате yyyy-MM");
+        }
     }
 }
