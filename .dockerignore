@@ -1,0 +1,6 @@
+.git
+target/
+postgres/
+.env
+.idea/
+*.iml
